@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>The Proximity Finder - Real-Time Location Tracker</title>
+
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Real-time location sharing between two users">
+    <meta name="theme-color" content="#555B6E">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="ProxiFinder">
+
+    <!-- PWA Manifest (uncomment after generating icons) -->
+    <!-- <link rel="manifest" href="manifest.json"> -->
+
+    <!-- App Icons (uncomment after generating icons) -->
+    <!-- <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png"> -->
+    <!-- <link rel="apple-touch-icon" href="icons/icon-192.png"> -->
+
+    <!-- External Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <!-- Tailwind Custom Config -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        'slate-blue': '#555B6E',
+                        'muted-teal': '#89B0AE',
+                        'frozen-water': '#BEE3DB',
+                        'bright-snow': '#FAF9F9',
+                        'peach-fuzz': '#FFD6BA',
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Custom Styles -->
+    <style>
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background-color: #BEE3DB;
+        }
+
+        #map {
+            height: 450px;
+            width: 100%;
+            border-radius: 0.5rem;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 100;
+            inset: 0;
+            background-color: rgba(85, 91, 110, 0.5);
+            backdrop-filter: blur(5px);
+        }
+
+        .modal.active {
+            display: flex;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen bg-frozen-water">
+    <!-- ==================== HEADER ==================== -->
+    <header class="bg-slate-blue text-bright-snow p-4 shadow-lg flex justify-between items-center">
+        <h1 class="text-xl font-bold">The Proximity Finder</h1>
+        <button id="user-info-btn"
+            class="text-sm bg-muted-teal hover:bg-opacity-80 text-slate-blue px-3 py-1 rounded-full transition font-medium">
+            User Info
+        </button>
+    </header>
+
+    <!-- ==================== MAIN CONTENT ==================== -->
+    <main class="p-4 space-y-4">
+
+        <!-- Connection Panel (Initial State) -->
+        <section id="connection-panel" class="bg-bright-snow p-6 rounded-xl shadow-2xl transition-all duration-500">
+            <h2 class="text-lg font-semibold text-slate-blue mb-4">Start or Join a Session</h2>
+
+            <div class="space-y-4">
+                <!-- Create Session -->
+                <div class="flex items-center space-x-2">
+                    <div class="flex-grow">
+                        <p class="text-xs text-slate-blue mb-1">
+                            Your detected country:
+                            <span id="detected-country" class="font-bold text-muted-teal">Detecting...</span>
+                        </p>
+                    </div>
+                    <button id="create-session-btn" disabled
+                        class="bg-muted-teal text-slate-blue py-3 px-4 rounded-xl font-bold hover:bg-opacity-80 transition shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed disabled:text-white">
+                        Create Session
+                    </button>
+                </div>
+
+                <!-- Join Session -->
+                <div class="border-t border-frozen-water pt-4">
+                    <p class="text-xs font-medium text-slate-blue mb-2">Or, join an existing session:</p>
+                    <div class="relative">
+                        <input type="text" id="session-code-input" placeholder="Enter 10-digit Code" maxlength="10"
+                            class="w-full p-3 border-2 border-frozen-water rounded-xl focus:ring-muted-teal focus:border-muted-teal transition uppercase tracking-widest text-center font-mono text-slate-blue">
+                        <button id="join-session-btn"
+                            class="absolute right-0 top-0 h-full bg-slate-blue text-bright-snow px-4 rounded-r-xl font-bold hover:bg-opacity-90 transition">
+                            Join
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Session Info Panel (Connected State) -->
+        <section id="info-panel" class="bg-bright-snow p-4 rounded-xl shadow-lg hidden">
+            <div class="flex justify-between items-start mb-2">
+                <p class="text-sm text-slate-blue">
+                    Session Code:
+                    <span id="display-session-code" class="font-bold text-muted-teal text-xl tracking-widest"></span>
+                </p>
+                <button id="end-session-btn"
+                    class="bg-peach-fuzz text-slate-blue px-3 py-1 rounded-lg text-sm font-bold hover:bg-opacity-80 transition">
+                    Stop Session
+                </button>
+            </div>
+            <div class="flex items-center justify-between">
+                <p class="text-2xl font-extrabold text-slate-blue">Distance:</p>
+                <div>
+                    <span id="distance-display" class="text-3xl font-bold text-muted-teal">--</span>
+                    <span class="text-lg font-semibold text-slate-blue">km</span>
+                </div>
+            </div>
+            <p id="status-message" class="mt-2 text-sm font-medium" style="color: #FFD6BA;">
+                Waiting for other user to connect…
+            </p>
+        </section>
+
+        <!-- Map Container -->
+        <section id="map-container" class="bg-bright-snow rounded-xl shadow-2xl p-2">
+            <div id="map"></div>
+        </section>
+    </main>
+
+    <!-- ==================== MODAL ==================== -->
+    <div id="app-modal" class="modal items-center justify-center p-4">
+        <div class="bg-bright-snow rounded-xl p-6 shadow-2xl max-w-sm w-full border-2 border-muted-teal">
+            <h3 id="modal-title" class="text-xl font-bold text-slate-blue mb-3">Alert</h3>
+            <p id="modal-content" class="text-slate-blue mb-4">Content goes here.</p>
+            <div class="flex justify-end">
+                <button id="modal-close-btn"
+                    class="bg-muted-teal text-slate-blue px-4 py-2 rounded-lg hover:bg-opacity-80 transition font-medium">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== APPLICATION SCRIPT ==================== -->
+    <script type="module">
+        // ============================================================
+        // IMPORTS
+        // ============================================================
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, deleteDoc, onSnapshot, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // ============================================================
+        // CONFIGURATION
+        // ============================================================
+        const CONFIG = {
+            firebase: {
+                apiKey: "AIzaSyCrobrOjBIh2crzvY4OjgEMdas8zWXcZvE",
+                authDomain: "digi-pet-8b8f8.firebaseapp.com",
+                projectId: "digi-pet-8b8f8",
+                storageBucket: "digi-pet-8b8f8.firebasestorage.app",
+                messagingSenderId: "145444794781",
+                appId: "1:145444794781:web:bdc56be2feae362e2dbf74"
+            },
+            defaultLocation: { lat: 34.0522, lng: -118.2437 }, // Los Angeles
+            sessionCodeLength: 10,
+            colors: {
+                connected: "#89B0AE",
+                waiting: "#FFD6BA"
+            }
+        };
+
+        const APP_ID = CONFIG.firebase.projectId;
+        const COLLECTION_PATH = `/artifacts/${APP_ID}/public/data/locations`;
+
+        // ============================================================
+        // APPLICATION STATE
+        // ============================================================
+        const state = {
+            db: null,
+            auth: null,
+            userId: null,
+            isAuthReady: false,
+            map: null,
+            userMarker: null,
+            partnerMarker: null,
+            watchId: null,
+            sessionCode: null,
+            userRole: null, // 'user1' or 'user2'
+            partnerLocation: null,
+            lastKnownLocation: { ...CONFIG.defaultLocation },
+            unsubscribeSnapshot: null,
+            detectedCountryCode: null
+        };
+
+        // ============================================================
+        // DOM ELEMENTS
+        // ============================================================
+        const DOM = {
+            // Panels
+            connectionPanel: document.getElementById('connection-panel'),
+            infoPanel: document.getElementById('info-panel'),
+
+            // Inputs & Buttons
+            sessionCodeInput: document.getElementById('session-code-input'),
+            createSessionBtn: document.getElementById('create-session-btn'),
+            joinSessionBtn: document.getElementById('join-session-btn'),
+            endSessionBtn: document.getElementById('end-session-btn'),
+            userInfoBtn: document.getElementById('user-info-btn'),
+
+            // Display Elements
+            detectedCountry: document.getElementById('detected-country'),
+            displaySessionCode: document.getElementById('display-session-code'),
+            distanceDisplay: document.getElementById('distance-display'),
+            statusMessage: document.getElementById('status-message'),
+
+            // Modal
+            modal: document.getElementById('app-modal'),
+            modalTitle: document.getElementById('modal-title'),
+            modalContent: document.getElementById('modal-content'),
+            modalCloseBtn: document.getElementById('modal-close-btn')
+        };
+
+        // ============================================================
+        // UTILITY FUNCTIONS
+        // ============================================================
+
+        /** Show modal with title and content */
+        function showModal(title, content) {
+            DOM.modalTitle.textContent = title;
+            DOM.modalContent.innerHTML = content;
+            DOM.modal.classList.add('active');
+        }
+
+        /** Hide modal */
+        function hideModal() {
+            DOM.modal.classList.remove('active');
+        }
+
+        /** Generate 10-digit session code with country prefix */
+        function generateSessionCode(countryCode) {
+            const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+            let code = countryCode.toUpperCase();
+            for (let i = 0; i < 8; i++) {
+                code += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return code;
+        }
+
+        /** Calculate distance between two points using Haversine formula */
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371; // Earth's radius in km
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) ** 2 +
+                Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                Math.sin(dLon / 2) ** 2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        /** Update status message with color */
+        function setStatus(message, isConnected = false) {
+            DOM.statusMessage.textContent = message;
+            DOM.statusMessage.style.color = isConnected ? CONFIG.colors.connected : CONFIG.colors.waiting;
+        }
+
+        // ============================================================
+        // SESSION PERSISTENCE (localStorage)
+        // ============================================================
+        const SessionStorage = {
+            save(code, role) {
+                localStorage.setItem('proximitySession', JSON.stringify({ code, role }));
+            },
+            get() {
+                const saved = localStorage.getItem('proximitySession');
+                return saved ? JSON.parse(saved) : null;
+            },
+            clear() {
+                localStorage.removeItem('proximitySession');
+            }
+        };
+
+        // ============================================================
+        // GEOLOCATION MODULE
+        // ============================================================
+        const Geolocation = {
+            /** Check if secure context (HTTPS required for mobile) */
+            isSecureContext() {
+                return location.protocol === 'https:' ||
+                    location.hostname === 'localhost' ||
+                    location.hostname === '127.0.0.1';
+            },
+
+            /** Request initial location */
+            requestLocation() {
+                console.log('[Geo] Requesting location...');
+                DOM.detectedCountry.textContent = "Detecting location...";
+
+                if (!this.isSecureContext()) {
+                    console.log('[Geo] Not secure context');
+                    showModal('HTTPS Required',
+                        'Location access requires HTTPS on mobile browsers.<br><br>Please deploy to HTTPS or use localhost.');
+                    this.handleLocationError();
+                    return;
+                }
+
+                if (!navigator.geolocation) {
+                    console.log('[Geo] Geolocation not supported');
+                    showModal('Not Supported', 'Geolocation is not supported by your browser.');
+                    this.handleLocationError();
+                    return;
+                }
+
+                // Set a manual timeout in case browser hangs
+                const timeoutId = setTimeout(() => {
+                    console.log('[Geo] Manual timeout triggered');
+                    this.handleLocationError();
+                    showModal('Location Timeout', 'Could not get your location. Using default location.<br><br>You can still create/join sessions.');
+                }, 15000);
+
+                navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                        clearTimeout(timeoutId);
+                        console.log('[Geo] Success:', pos.coords);
+                        this.handleLocationSuccess(pos);
+                    },
+                    (err) => {
+                        clearTimeout(timeoutId);
+                        console.log('[Geo] Error:', err.code, err.message);
+                        this.handleLocationDenied(err);
+                    },
+                    {
+                        enableHighAccuracy: false,
+                        timeout: 10000,
+                        maximumAge: 300000 // 5 minutes cache
+                    }
+                );
+            },
+
+            handleLocationSuccess(pos) {
+                state.lastKnownLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                console.log('[Geo] Location set:', state.lastKnownLocation);
+                MapModule.initialize(state.lastKnownLocation.lat, state.lastKnownLocation.lng);
+                this.detectCountry(state.lastKnownLocation.lat, state.lastKnownLocation.lng);
+            },
+
+            handleLocationDenied(err) {
+                const messages = {
+                    1: ['Permission denied', 'Enable location in browser/device settings.'],
+                    2: ['Location unavailable', 'Make sure GPS is enabled.'],
+                    3: ['Request timeout', 'Please try again.']
+                };
+                const [title, hint] = messages[err.code] || ['Error', 'Unknown error'];
+                console.log('[Geo] Denied:', title);
+                showModal('Location Error', `${title}<br><small>${hint}</small>`);
+                this.handleLocationError();
+            },
+
+            handleLocationError() {
+                console.log('[Geo] Using default location');
+                MapModule.initialize(CONFIG.defaultLocation.lat, CONFIG.defaultLocation.lng);
+                DOM.detectedCountry.textContent = "Location unavailable";
+                state.detectedCountryCode = "XX";
+                DOM.createSessionBtn.disabled = false;
+            },
+
+            /** Detect country from coordinates using reverse geocoding */
+            async detectCountry(lat, lng) {
+                console.log('[Geo] Detecting country for:', lat, lng);
+                DOM.detectedCountry.textContent = "Detecting country...";
+
+                try {
+                    // Add timeout to fetch
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+                    const response = await fetch(
+                        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+                        {
+                            signal: controller.signal,
+                            headers: { 'User-Agent': 'ProximityFinder/1.0' }
+                        }
+                    );
+                    clearTimeout(timeoutId);
+
+                    const data = await response.json();
+                    console.log('[Geo] Country data:', data.address);
+
+                    if (data.address?.country_code) {
+                        state.detectedCountryCode = data.address.country_code.toUpperCase();
+                        DOM.detectedCountry.textContent = `${state.detectedCountryCode} (${data.address.country || 'Unknown'})`;
+                        console.log('[Geo] Country detected:', state.detectedCountryCode);
+                    } else {
+                        throw new Error('Country not found in response');
+                    }
+                } catch (error) {
+                    console.error('[Geo] Country detection failed:', error);
+                    DOM.detectedCountry.textContent = "Unknown (using XX)";
+                    state.detectedCountryCode = "XX";
+                }
+                DOM.createSessionBtn.disabled = false;
+            },
+
+            /** Start watching position for real-time updates */
+            startWatching() {
+                if (!navigator.geolocation) return;
+
+                state.watchId = navigator.geolocation.watchPosition(
+                    (pos) => Session.updateLocation(pos.coords),
+                    (err) => console.error('Watch error:', err),
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                );
+            },
+
+            /** Stop watching position */
+            stopWatching() {
+                if (state.watchId) {
+                    navigator.geolocation.clearWatch(state.watchId);
+                    state.watchId = null;
+                }
+            }
+        };
+
+        // ============================================================
+        // MAP MODULE
+        // ============================================================
+        const MapModule = {
+            initialize(lat, lng) {
+                if (state.map) return;
+
+                state.map = L.map('map').setView([lat, lng], 13);
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '© OpenStreetMap'
+                }).addTo(state.map);
+
+                state.userMarker = L.marker([lat, lng], { title: 'You' })
+                    .addTo(state.map)
+                    .bindPopup('You are here')
+                    .openPopup();
+
+                state.partnerMarker = L.marker([lat, lng], { title: 'Partner', opacity: 0 })
+                    .addTo(state.map)
+                    .bindPopup('Partner');
+
+                setTimeout(() => state.map.invalidateSize(), 100);
+            },
+
+            update(userLoc, partnerLoc) {
+                if (!state.userMarker) return;
+
+                // Update user marker
+                state.userMarker.setLatLng([userLoc.lat, userLoc.lng]);
+                state.userMarker.setPopupContent(`You (${userLoc.lat.toFixed(4)}, ${userLoc.lng.toFixed(4)})`);
+                state.lastKnownLocation = userLoc;
+
+                // Update partner marker and distance
+                if (partnerLoc?.lat && partnerLoc?.lng) {
+                    state.partnerMarker.setLatLng([partnerLoc.lat, partnerLoc.lng]);
+                    state.partnerMarker.setOpacity(1);
+                    state.partnerMarker.setPopupContent(`Partner (${partnerLoc.lat.toFixed(4)}, ${partnerLoc.lng.toFixed(4)})`);
+
+                    const distance = calculateDistance(userLoc.lat, userLoc.lng, partnerLoc.lat, partnerLoc.lng);
+                    DOM.distanceDisplay.textContent = distance.toFixed(2);
+                    setStatus('Partner found and tracking in real-time.', true);
+
+                    const bounds = L.latLngBounds([userLoc.lat, userLoc.lng], [partnerLoc.lat, partnerLoc.lng]);
+                    state.map.fitBounds(bounds, { padding: [50, 50] });
+                } else {
+                    DOM.distanceDisplay.textContent = '--';
+                    state.partnerMarker.setOpacity(0);
+                    setStatus('Waiting for other user to connect…', false);
+                    state.map.setView([userLoc.lat, userLoc.lng], 13);
+                }
+
+                state.map.invalidateSize();
+            },
+
+            resetView() {
+                if (state.map) {
+                    state.map.setView([state.lastKnownLocation.lat, state.lastKnownLocation.lng], 13);
+                    state.map.invalidateSize();
+                }
+                if (state.partnerMarker) {
+                    state.partnerMarker.setOpacity(0);
+                }
+            }
+        };
+
+        // ============================================================
+        // SESSION MODULE
+        // ============================================================
+        const Session = {
+            /** Create a new session */
+            async create() {
+                if (!state.isAuthReady) {
+                    showModal('Please Wait', 'Authentication is preparing...');
+                    return;
+                }
+                if (!state.detectedCountryCode) {
+                    showModal('Please Wait', 'Country detection in progress...');
+                    return;
+                }
+
+                const code = generateSessionCode(state.detectedCountryCode);
+                const docRef = doc(state.db, COLLECTION_PATH, code);
+
+                try {
+                    await setDoc(docRef, {
+                        user1_id: state.userId,
+                        user1_location: { ...state.lastKnownLocation, timestamp: Date.now() },
+                        user2_id: null,
+                        user2_location: { lat: 0, lng: 0, timestamp: 0 },
+                        countryCode: state.detectedCountryCode,
+                        createdAt: Date.now()
+                    });
+                    this.start(code, 'user1');
+                } catch (error) {
+                    console.error('Create session error:', error);
+                    showModal('Error', `Failed to create session: ${error.message}`);
+                }
+            },
+
+            /** Join an existing session */
+            async join() {
+                if (!state.isAuthReady) {
+                    showModal('Please Wait', 'Authentication is preparing...');
+                    return;
+                }
+
+                const code = DOM.sessionCodeInput.value.toUpperCase().trim();
+                if (code.length !== CONFIG.sessionCodeLength) {
+                    showModal('Invalid Code', 'Please enter a 10-character session code.');
+                    return;
+                }
+
+                const docRef = doc(state.db, COLLECTION_PATH, code);
+
+                try {
+                    const docSnap = await getDoc(docRef);
+
+                    if (!docSnap.exists()) {
+                        showModal('Not Found', 'Session code does not exist.');
+                        return;
+                    }
+
+                    const data = docSnap.data();
+                    if (data.user2_id && data.user2_id !== state.userId) {
+                        showModal('Session Full', 'This session already has 2 users.');
+                        return;
+                    }
+
+                    await updateDoc(docRef, {
+                        user2_id: state.userId,
+                        'user2_location.timestamp': Date.now()
+                    });
+                    this.start(code, 'user2');
+                } catch (error) {
+                    console.error('Join session error:', error);
+                    showModal('Error', `Failed to join: ${error.message}`);
+                }
+            },
+
+            /** Start session listener */
+            start(code, role) {
+                state.sessionCode = code;
+                state.userRole = role;
+                const partnerRole = role === 'user1' ? 'user2' : 'user1';
+
+                // Update UI
+                DOM.connectionPanel.classList.add('hidden');
+                DOM.infoPanel.classList.remove('hidden');
+                DOM.displaySessionCode.textContent = code;
+                DOM.endSessionBtn.textContent = role === 'user1' ? 'Stop Session' : 'Leave Session';
+
+                SessionStorage.save(code, role);
+                setTimeout(() => state.map?.invalidateSize(), 200);
+                Geolocation.startWatching();
+
+                // Listen for session changes
+                const docRef = doc(state.db, COLLECTION_PATH, code);
+                state.unsubscribeSnapshot = onSnapshot(docRef, (snapshot) => {
+                    if (!snapshot.exists()) {
+                        if (state.userRole === 'user2') {
+                            this.reset();
+                            showModal('Session Ended', 'The session creator has stopped the session.');
+                            setTimeout(hideModal, 2000);
+                        }
+                        return;
+                    }
+
+                    const data = snapshot.data();
+                    const partnerData = data[`${partnerRole}_location`];
+
+                    // Check if partner left
+                    if (role === 'user1' && data.user2_id === null) {
+                        state.partnerLocation = null;
+                        MapModule.update(state.lastKnownLocation, {});
+                        return;
+                    }
+
+                    if (partnerData?.lat && partnerData.lat !== 0) {
+                        state.partnerLocation = partnerData;
+                        MapModule.update(state.lastKnownLocation, partnerData);
+                    } else {
+                        state.partnerLocation = null;
+                        MapModule.update(state.lastKnownLocation, {});
+                    }
+                });
+            },
+
+            /** Update location in Firestore */
+            async updateLocation(coords) {
+                if (!state.isAuthReady || !state.sessionCode || !state.userRole) return;
+
+                const docRef = doc(state.db, COLLECTION_PATH, state.sessionCode);
+                try {
+                    await updateDoc(docRef, {
+                        [`${state.userRole}_id`]: state.userId,
+                        [`${state.userRole}_location`]: {
+                            lat: coords.latitude,
+                            lng: coords.longitude,
+                            timestamp: Date.now()
+                        }
+                    });
+                    MapModule.update(
+                        { lat: coords.latitude, lng: coords.longitude },
+                        state.partnerLocation || {}
+                    );
+                } catch (error) {
+                    console.error('Update location error:', error);
+                }
+            },
+
+            /** End/Leave session */
+            async end() {
+                Geolocation.stopWatching();
+
+                if (state.unsubscribeSnapshot) {
+                    state.unsubscribeSnapshot();
+                    state.unsubscribeSnapshot = null;
+                }
+
+                const docRef = doc(state.db, COLLECTION_PATH, state.sessionCode);
+
+                // Creator deletes session, joiner clears their data
+                if (state.userRole === 'user1') {
+                    try {
+                        await deleteDoc(docRef);
+                    } catch (e) { console.error('Delete error:', e); }
+                } else if (state.userRole === 'user2') {
+                    try {
+                        await updateDoc(docRef, {
+                            user2_id: null,
+                            user2_location: { lat: 0, lng: 0, timestamp: 0 }
+                        });
+                    } catch (e) { console.error('Leave error:', e); }
+                }
+
+                this.reset();
+            },
+
+            /** Reset to initial state */
+            reset() {
+                Geolocation.stopWatching();
+                if (state.unsubscribeSnapshot) {
+                    state.unsubscribeSnapshot();
+                    state.unsubscribeSnapshot = null;
+                }
+
+                SessionStorage.clear();
+                state.sessionCode = null;
+                state.userRole = null;
+                state.partnerLocation = null;
+
+                DOM.connectionPanel.classList.remove('hidden');
+                DOM.infoPanel.classList.add('hidden');
+                DOM.distanceDisplay.textContent = '--';
+                setStatus('Waiting for other user to connect…', false);
+                MapModule.resetView();
+            },
+
+            /** Restore saved session */
+            restore() {
+                const saved = SessionStorage.get();
+                if (saved?.code && saved?.role) {
+                    console.log('Restoring session:', saved);
+                    this.start(saved.code, saved.role);
+                }
+            }
+        };
+
+        // ============================================================
+        // FIREBASE INITIALIZATION
+        // ============================================================
+        async function initializeFirebaseApp() {
+            try {
+                const app = initializeApp(CONFIG.firebase);
+                state.db = getFirestore(app);
+                state.auth = getAuth(app);
+
+                await signInAnonymously(state.auth);
+                console.log('%c✓ Authenticated anonymously', 'color: green; font-weight: bold');
+
+                onAuthStateChanged(state.auth, (user) => {
+                    if (user) {
+                        state.userId = user.uid;
+                        state.isAuthReady = true;
+                        Geolocation.requestLocation();
+                        setTimeout(() => Session.restore(), 500);
+                    }
+                });
+            } catch (error) {
+                console.error('Firebase init error:', error);
+                showModal('Error', `Initialization failed: ${error.message}`);
+            }
+        }
+
+        // ============================================================
+        // EVENT LISTENERS
+        // ============================================================
+        DOM.createSessionBtn.addEventListener('click', () => Session.create());
+        DOM.joinSessionBtn.addEventListener('click', () => Session.join());
+        DOM.endSessionBtn.addEventListener('click', () => Session.end());
+        DOM.userInfoBtn.addEventListener('click', () => {
+            showModal('User Info', `<p>Your Firebase ID:</p><p class="mt-2 text-sm font-mono break-all">${state.userId || 'Not authenticated'}</p>`);
+        });
+        DOM.modalCloseBtn.addEventListener('click', hideModal);
+        DOM.modal.addEventListener('click', (e) => {
+            if (e.target === DOM.modal) hideModal();
+        });
+
+        // ============================================================
+        // PWA: Register Service Worker
+        // ============================================================
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js')
+                .then((reg) => console.log('%c✓ Service Worker registered', 'color: green'))
+                .catch((err) => console.log('SW registration failed:', err));
+        }
+
+        // ============================================================
+        // PWA: Install Prompt
+        // ============================================================
+        let deferredPrompt;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            // Show install button if not already installed
+            showInstallButton();
+        });
+
+        function showInstallButton() {
+            // Add install button to header if not exists
+            if (!document.getElementById('install-btn')) {
+                const header = document.querySelector('header');
+                const installBtn = document.createElement('button');
+                installBtn.id = 'install-btn';
+                installBtn.className = 'text-sm bg-peach-fuzz text-slate-blue px-3 py-1 rounded-full transition font-medium mr-2';
+                installBtn.textContent = 'Install App';
+                installBtn.onclick = installApp;
+                header.insertBefore(installBtn, DOM.userInfoBtn);
+            }
+        }
+
+        async function installApp() {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const { outcome } = await deferredPrompt.userChoice;
+            console.log('Install outcome:', outcome);
+            deferredPrompt = null;
+            document.getElementById('install-btn')?.remove();
+        }
+
+        // Hide install button if already installed
+        window.addEventListener('appinstalled', () => {
+            console.log('%c✓ App installed!', 'color: green; font-weight: bold');
+            document.getElementById('install-btn')?.remove();
+        });
+
+        // ============================================================
+        // START APPLICATION
+        // ============================================================
+        window.onload = initializeFirebaseApp;
+    </script>
+</body>
+
+</html>
