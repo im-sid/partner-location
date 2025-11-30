@@ -89,16 +89,22 @@
 
             <div class="space-y-4">
                 <!-- Create Session -->
-                <div class="flex items-center space-x-2">
-                    <div class="flex-grow">
-                        <p class="text-xs text-slate-blue mb-1">
-                            Your detected country:
-                            <span id="detected-country" class="font-bold text-muted-teal">Detecting...</span>
-                        </p>
+                <div class="space-y-2">
+                    <div class="flex items-center space-x-2">
+                        <div class="flex-grow">
+                            <p class="text-xs text-slate-blue mb-1">
+                                Your detected country:
+                                <span id="detected-country" class="font-bold text-muted-teal">Detecting...</span>
+                            </p>
+                        </div>
+                        <button id="create-session-btn" disabled
+                            class="bg-muted-teal text-slate-blue py-3 px-4 rounded-xl font-bold hover:bg-opacity-80 transition shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed disabled:text-white">
+                            Create Session
+                        </button>
                     </div>
-                    <button id="create-session-btn" disabled
-                        class="bg-muted-teal text-slate-blue py-3 px-4 rounded-xl font-bold hover:bg-opacity-80 transition shadow-md disabled:bg-gray-400 disabled:cursor-not-allowed disabled:text-white">
-                        Create Session
+                    <!-- Retry location button (hidden by default) -->
+                    <button id="retry-location-btn" class="hidden w-full bg-peach-fuzz text-slate-blue py-2 px-4 rounded-lg font-medium hover:bg-opacity-80 transition text-sm">
+                        📍 Click to Enable Location
                     </button>
                 </div>
 
@@ -379,9 +385,18 @@
             handleLocationError() {
                 console.log('[Geo] Using default location');
                 MapModule.initialize(CONFIG.defaultLocation.lat, CONFIG.defaultLocation.lng);
-                DOM.detectedCountry.textContent = "Location unavailable";
+                const detectedCountryEl = document.getElementById('detected-country');
+                const retryBtn = document.getElementById('retry-location-btn');
+                
+                detectedCountryEl.textContent = "Click button below";
+                detectedCountryEl.className = "font-bold text-peach-fuzz";
+                
+                if (retryBtn) {
+                    retryBtn.classList.remove('hidden');
+                }
+                
                 state.detectedCountryCode = "XX";
-                DOM.createSessionBtn.disabled = false;
+                document.getElementById('create-session-btn').disabled = false;
             },
 
             /** Detect country from coordinates using reverse geocoding */
@@ -748,6 +763,15 @@
         DOM.modal.addEventListener('click', (e) => {
             if (e.target === DOM.modal) hideModal();
         });
+        
+        // Retry location button
+        const retryBtn = document.getElementById('retry-location-btn');
+        if (retryBtn) {
+            retryBtn.addEventListener('click', () => {
+                retryBtn.classList.add('hidden');
+                Geolocation.requestLocation();
+            });
+        }
 
         // ============================================================
         // PWA: Register Service Worker
