@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>The Proximity Finder - Real-Time Location Tracker</title>
 
     <!-- PWA Meta Tags -->
@@ -67,6 +67,62 @@
         .modal.active {
             display: flex;
         }
+
+        /* Custom marker with label */
+        .custom-marker {
+            text-align: center;
+            white-space: nowrap;
+        }
+
+        .marker-pin {
+            width: 30px;
+            height: 30px;
+            border-radius: 50% 50% 50% 0;
+            background: #89B0AE;
+            position: absolute;
+            transform: rotate(-45deg);
+            left: 50%;
+            top: 50%;
+            margin: -15px 0 0 -15px;
+            border: 3px solid #fff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .marker-pin::after {
+            content: '';
+            width: 14px;
+            height: 14px;
+            margin: 8px 0 0 8px;
+            background: #fff;
+            position: absolute;
+            border-radius: 50%;
+        }
+
+        .marker-label {
+            position: absolute;
+            top: 35px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.95);
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: bold;
+            color: #555B6E;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+            white-space: nowrap;
+            pointer-events: none;
+        }
+
+        .marker-label .city {
+            font-size: 9px;
+            color: #89B0AE;
+            font-weight: normal;
+        }
+
+        .partner-marker .marker-pin {
+            background: #FFD6BA;
+        }
     </style>
 </head>
 
@@ -90,6 +146,8 @@
             <div class="space-y-4">
                 <!-- Create Session -->
                 <div class="space-y-2">
+                    <input type="text" id="user-name-input" placeholder="Enter your name" maxlength="20"
+                        class="w-full p-3 border-2 border-frozen-water rounded-xl focus:ring-muted-teal focus:border-muted-teal transition text-slate-blue">
                     <div class="flex items-center space-x-2">
                         <div class="flex-grow">
                             <p class="text-xs text-slate-blue mb-1">
@@ -103,7 +161,8 @@
                         </button>
                     </div>
                     <!-- Retry location button (hidden by default) -->
-                    <button id="retry-location-btn" class="hidden w-full bg-peach-fuzz text-slate-blue py-2 px-4 rounded-lg font-medium hover:bg-opacity-80 transition text-sm">
+                    <button id="retry-location-btn"
+                        class="hidden w-full bg-peach-fuzz text-slate-blue py-2 px-4 rounded-lg font-medium hover:bg-opacity-80 transition text-sm">
                         📍 Click to Enable Location
                     </button>
                 </div>
@@ -111,6 +170,8 @@
                 <!-- Join Session -->
                 <div class="border-t border-frozen-water pt-4">
                     <p class="text-xs font-medium text-slate-blue mb-2">Or, join an existing session:</p>
+                    <input type="text" id="join-name-input" placeholder="Enter your name" maxlength="20"
+                        class="w-full p-3 mb-2 border-2 border-frozen-water rounded-xl focus:ring-muted-teal focus:border-muted-teal transition text-slate-blue">
                     <div class="relative">
                         <input type="text" id="session-code-input" placeholder="Enter 10-digit Code" maxlength="10"
                             class="w-full p-3 border-2 border-frozen-water rounded-xl focus:ring-muted-teal focus:border-muted-teal transition uppercase tracking-widest text-center font-mono text-slate-blue">
@@ -145,6 +206,22 @@
             <p id="status-message" class="mt-2 text-sm font-medium" style="color: #FFD6BA;">
                 Waiting for other user to connect…
             </p>
+        </section>
+
+        <!-- Partner Info Section (Hidden by default) -->
+        <section id="partner-info-section" class="bg-bright-snow p-4 rounded-xl shadow-lg hidden">
+            <h3 class="text-sm font-semibold text-slate-blue mb-2">Partner Location</h3>
+            <div class="space-y-1">
+                <p class="text-lg font-bold text-muted-teal" id="partner-name-display">--</p>
+                <p class="text-sm text-slate-blue">
+                    <span class="font-medium">Address:</span>
+                    <span id="partner-city-display" class="text-muted-teal">--</span>
+                </p>
+                <p class="text-xs text-slate-blue font-mono">
+                    <span class="font-medium">Coordinates:</span>
+                    <span id="partner-coords-display">--, --</span>
+                </p>
+            </div>
         </section>
 
         <!-- Map Container -->
@@ -210,13 +287,19 @@
             map: null,
             userMarker: null,
             partnerMarker: null,
+            connectionLine: null,
             watchId: null,
             sessionCode: null,
             userRole: null, // 'user1' or 'user2'
             partnerLocation: null,
             lastKnownLocation: { ...CONFIG.defaultLocation },
             unsubscribeSnapshot: null,
-            detectedCountryCode: null
+            detectedCountryCode: null,
+            userName: null,
+            partnerName: null,
+            userCity: null,
+            partnerCity: null,
+            partnerAddress: null
         };
 
         // ============================================================
@@ -226,8 +309,11 @@
             // Panels
             connectionPanel: document.getElementById('connection-panel'),
             infoPanel: document.getElementById('info-panel'),
+            partnerInfoSection: document.getElementById('partner-info-section'),
 
             // Inputs & Buttons
+            userNameInput: document.getElementById('user-name-input'),
+            joinNameInput: document.getElementById('join-name-input'),
             sessionCodeInput: document.getElementById('session-code-input'),
             createSessionBtn: document.getElementById('create-session-btn'),
             joinSessionBtn: document.getElementById('join-session-btn'),
@@ -239,6 +325,9 @@
             displaySessionCode: document.getElementById('display-session-code'),
             distanceDisplay: document.getElementById('distance-display'),
             statusMessage: document.getElementById('status-message'),
+            partnerNameDisplay: document.getElementById('partner-name-display'),
+            partnerCityDisplay: document.getElementById('partner-city-display'),
+            partnerCoordsDisplay: document.getElementById('partner-coords-display'),
 
             // Modal
             modal: document.getElementById('app-modal'),
@@ -288,6 +377,21 @@
         function setStatus(message, isConnected = false) {
             DOM.statusMessage.textContent = message;
             DOM.statusMessage.style.color = isConnected ? CONFIG.colors.connected : CONFIG.colors.waiting;
+        }
+
+        /** Update partner info display */
+        function updatePartnerInfo() {
+            if (state.partnerName && state.partnerLocation?.lat) {
+                DOM.partnerInfoSection.classList.remove('hidden');
+                DOM.partnerNameDisplay.textContent = state.partnerName;
+                DOM.partnerCityDisplay.textContent = state.partnerAddress || 'Loading address...';
+                DOM.partnerCoordsDisplay.textContent = `${state.partnerLocation.lat.toFixed(6)}, ${state.partnerLocation.lng.toFixed(6)}`;
+            } else {
+                DOM.partnerInfoSection.classList.add('hidden');
+                DOM.partnerNameDisplay.textContent = '--';
+                DOM.partnerCityDisplay.textContent = '--';
+                DOM.partnerCoordsDisplay.textContent = '--, --';
+            }
         }
 
         // ============================================================
@@ -387,14 +491,14 @@
                 MapModule.initialize(CONFIG.defaultLocation.lat, CONFIG.defaultLocation.lng);
                 const detectedCountryEl = document.getElementById('detected-country');
                 const retryBtn = document.getElementById('retry-location-btn');
-                
+
                 detectedCountryEl.textContent = "Click button below";
                 detectedCountryEl.className = "font-bold text-peach-fuzz";
-                
+
                 if (retryBtn) {
                     retryBtn.classList.remove('hidden');
                 }
-                
+
                 state.detectedCountryCode = "XX";
                 document.getElementById('create-session-btn').disabled = false;
             },
@@ -460,6 +564,62 @@
         // MAP MODULE
         // ============================================================
         const MapModule = {
+            createCustomIcon(name, city, isPartner = false) {
+                const markerClass = isPartner ? 'custom-marker partner-marker' : 'custom-marker';
+                return L.divIcon({
+                    className: markerClass,
+                    html: `
+                        <div class="marker-pin"></div>
+                        <div class="marker-label">
+                            <div>${name || 'Unknown'}</div>
+                            <div class="city">${city || 'Loading...'}</div>
+                        </div>
+                    `,
+                    iconSize: [30, 50],
+                    iconAnchor: [15, 30]
+                });
+            },
+
+            async fetchCityName(lat, lng) {
+                try {
+                    const response = await fetch(
+                        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+                        { headers: { 'User-Agent': 'ProximityFinder/1.0' } }
+                    );
+                    const data = await response.json();
+                    return data.address?.city || data.address?.town || data.address?.village || data.address?.county || 'Unknown';
+                } catch (error) {
+                    console.error('City fetch error:', error);
+                    return 'Unknown';
+                }
+            },
+
+            async fetchFullAddress(lat, lng) {
+                try {
+                    const response = await fetch(
+                        `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`,
+                        { headers: { 'User-Agent': 'ProximityFinder/1.0' } }
+                    );
+                    const data = await response.json();
+                    const addr = data.address;
+                    if (!addr) return 'Address not available';
+
+                    // Build full address from available components
+                    const parts = [];
+                    if (addr.road) parts.push(addr.road);
+                    if (addr.suburb || addr.neighbourhood) parts.push(addr.suburb || addr.neighbourhood);
+                    if (addr.city || addr.town || addr.village) parts.push(addr.city || addr.town || addr.village);
+                    if (addr.state) parts.push(addr.state);
+                    if (addr.postcode) parts.push(addr.postcode);
+                    if (addr.country) parts.push(addr.country);
+
+                    return parts.length > 0 ? parts.join(', ') : 'Address not available';
+                } catch (error) {
+                    console.error('Address fetch error:', error);
+                    return 'Address not available';
+                }
+            },
+
             initialize(lat, lng) {
                 if (state.map) return;
 
@@ -468,35 +628,129 @@
                     attribution: '© OpenStreetMap'
                 }).addTo(state.map);
 
-                state.userMarker = L.marker([lat, lng], { title: 'You' })
-                    .addTo(state.map)
-                    .bindPopup('You are here')
-                    .openPopup();
+                const userIcon = this.createCustomIcon(state.userName || 'You', 'Loading...');
+                state.userMarker = L.marker([lat, lng], { icon: userIcon })
+                    .addTo(state.map);
 
-                state.partnerMarker = L.marker([lat, lng], { title: 'Partner', opacity: 0 })
-                    .addTo(state.map)
-                    .bindPopup('Partner');
+                const partnerIcon = this.createCustomIcon('Partner', 'Waiting...', true);
+                state.partnerMarker = L.marker([lat, lng], { icon: partnerIcon, opacity: 0 })
+                    .addTo(state.map);
 
                 setTimeout(() => state.map.invalidateSize(), 100);
+
+                // Fetch city for initial location
+                this.fetchCityName(lat, lng).then(city => {
+                    state.userCity = city;
+                    this.updateUserMarker();
+                });
             },
 
-            update(userLoc, partnerLoc) {
+            updateUserMarker() {
+                if (!state.userMarker) return;
+                const icon = this.createCustomIcon(state.userName || 'You', state.userCity || 'Loading...');
+                state.userMarker.setIcon(icon);
+            },
+
+            updatePartnerMarker() {
+                if (!state.partnerMarker) return;
+                const icon = this.createCustomIcon(state.partnerName || 'Partner', state.partnerCity || 'Loading...', true);
+                state.partnerMarker.setIcon(icon);
+                updatePartnerInfo();
+            },
+
+            createCurvedLine(start, end) {
+                // Calculate midpoint with offset for curve
+                const midLat = (start[0] + end[0]) / 2;
+                const midLng = (start[1] + end[1]) / 2;
+
+                // Calculate perpendicular offset for curve (10% of distance)
+                const latDiff = end[0] - start[0];
+                const lngDiff = end[1] - start[1];
+                const distance = Math.sqrt(latDiff * latDiff + lngDiff * lngDiff);
+                const offset = distance * 0.1;
+
+                // Create curved path using quadratic bezier approximation
+                const controlLat = midLat - lngDiff * offset;
+                const controlLng = midLng + latDiff * offset;
+
+                // Generate points along the curve
+                const points = [];
+                const segments = 20;
+                for (let i = 0; i <= segments; i++) {
+                    const t = i / segments;
+                    const t1 = 1 - t;
+                    const lat = t1 * t1 * start[0] + 2 * t1 * t * controlLat + t * t * end[0];
+                    const lng = t1 * t1 * start[1] + 2 * t1 * t * controlLng + t * t * end[1];
+                    points.push([lat, lng]);
+                }
+
+                return points;
+            },
+
+            updateConnectionLine(userLoc, partnerLoc) {
+                // Remove existing line
+                if (state.connectionLine) {
+                    state.map.removeLayer(state.connectionLine);
+                    state.connectionLine = null;
+                }
+
+                // Draw new curved line if both locations exist
+                if (userLoc && partnerLoc && partnerLoc.lat && partnerLoc.lng) {
+                    const curvedPoints = this.createCurvedLine(
+                        [userLoc.lat, userLoc.lng],
+                        [partnerLoc.lat, partnerLoc.lng]
+                    );
+
+                    state.connectionLine = L.polyline(curvedPoints, {
+                        color: '#89B0AE',
+                        weight: 3,
+                        opacity: 0.7,
+                        smoothFactor: 1,
+                        dashArray: '10, 10'
+                    }).addTo(state.map);
+                }
+            },
+
+            async update(userLoc, partnerLoc) {
                 if (!state.userMarker) return;
 
-                // Update user marker
+                // Update user marker position
                 state.userMarker.setLatLng([userLoc.lat, userLoc.lng]);
-                state.userMarker.setPopupContent(`You (${userLoc.lat.toFixed(4)}, ${userLoc.lng.toFixed(4)})`);
                 state.lastKnownLocation = userLoc;
+
+                // Fetch city if location changed significantly
+                if (!state.userCity || Math.abs(userLoc.lat - state.lastKnownLocation.lat) > 0.01) {
+                    this.fetchCityName(userLoc.lat, userLoc.lng).then(city => {
+                        state.userCity = city;
+                        this.updateUserMarker();
+                    });
+                }
 
                 // Update partner marker and distance
                 if (partnerLoc?.lat && partnerLoc?.lng) {
                     state.partnerMarker.setLatLng([partnerLoc.lat, partnerLoc.lng]);
                     state.partnerMarker.setOpacity(1);
-                    state.partnerMarker.setPopupContent(`Partner (${partnerLoc.lat.toFixed(4)}, ${partnerLoc.lng.toFixed(4)})`);
+
+                    // Fetch partner city and address
+                    if (!state.partnerCity || Math.abs(partnerLoc.lat - (state.partnerLocation?.lat || 0)) > 0.01) {
+                        this.fetchCityName(partnerLoc.lat, partnerLoc.lng).then(city => {
+                            state.partnerCity = city;
+                            this.updatePartnerMarker();
+                        });
+                        this.fetchFullAddress(partnerLoc.lat, partnerLoc.lng).then(address => {
+                            state.partnerAddress = address;
+                            updatePartnerInfo();
+                        });
+                    } else {
+                        updatePartnerInfo();
+                    }
 
                     const distance = calculateDistance(userLoc.lat, userLoc.lng, partnerLoc.lat, partnerLoc.lng);
                     DOM.distanceDisplay.textContent = distance.toFixed(2);
                     setStatus('Partner found and tracking in real-time.', true);
+
+                    // Draw connection line
+                    this.updateConnectionLine(userLoc, partnerLoc);
 
                     const bounds = L.latLngBounds([userLoc.lat, userLoc.lng], [partnerLoc.lat, partnerLoc.lng]);
                     state.map.fitBounds(bounds, { padding: [50, 50] });
@@ -505,6 +759,10 @@
                     state.partnerMarker.setOpacity(0);
                     setStatus('Waiting for other user to connect…', false);
                     state.map.setView([userLoc.lat, userLoc.lng], 13);
+                    updatePartnerInfo();
+
+                    // Remove connection line
+                    this.updateConnectionLine(null, null);
                 }
 
                 state.map.invalidateSize();
@@ -517,6 +775,10 @@
                 }
                 if (state.partnerMarker) {
                     state.partnerMarker.setOpacity(0);
+                }
+                if (state.connectionLine) {
+                    state.map.removeLayer(state.connectionLine);
+                    state.connectionLine = null;
                 }
             }
         };
@@ -536,14 +798,23 @@
                     return;
                 }
 
+                const userName = DOM.userNameInput.value.trim();
+                if (!userName) {
+                    showModal('Name Required', 'Please enter your name before creating a session.');
+                    return;
+                }
+
+                state.userName = userName;
                 const code = generateSessionCode(state.detectedCountryCode);
                 const docRef = doc(state.db, COLLECTION_PATH, code);
 
                 try {
                     await setDoc(docRef, {
                         user1_id: state.userId,
+                        user1_name: userName,
                         user1_location: { ...state.lastKnownLocation, timestamp: Date.now() },
                         user2_id: null,
+                        user2_name: null,
                         user2_location: { lat: 0, lng: 0, timestamp: 0 },
                         countryCode: state.detectedCountryCode,
                         createdAt: Date.now()
@@ -562,12 +833,19 @@
                     return;
                 }
 
+                const userName = DOM.joinNameInput.value.trim();
+                if (!userName) {
+                    showModal('Name Required', 'Please enter your name before joining a session.');
+                    return;
+                }
+
                 const code = DOM.sessionCodeInput.value.toUpperCase().trim();
                 if (code.length !== CONFIG.sessionCodeLength) {
                     showModal('Invalid Code', 'Please enter a 10-character session code.');
                     return;
                 }
 
+                state.userName = userName;
                 const docRef = doc(state.db, COLLECTION_PATH, code);
 
                 try {
@@ -586,6 +864,7 @@
 
                     await updateDoc(docRef, {
                         user2_id: state.userId,
+                        user2_name: userName,
                         'user2_location.timestamp': Date.now()
                     });
                     this.start(code, 'user2');
@@ -611,6 +890,9 @@
                 setTimeout(() => state.map?.invalidateSize(), 200);
                 Geolocation.startWatching();
 
+                // Update user marker with name
+                MapModule.updateUserMarker();
+
                 // Listen for session changes
                 const docRef = doc(state.db, COLLECTION_PATH, code);
                 state.unsubscribeSnapshot = onSnapshot(docRef, (snapshot) => {
@@ -625,11 +907,21 @@
 
                     const data = snapshot.data();
                     const partnerData = data[`${partnerRole}_location`];
+                    const partnerName = data[`${partnerRole}_name`];
+
+                    // Update partner name if available
+                    if (partnerName && partnerName !== state.partnerName) {
+                        state.partnerName = partnerName;
+                        MapModule.updatePartnerMarker();
+                    }
 
                     // Check if partner left
                     if (role === 'user1' && data.user2_id === null) {
                         state.partnerLocation = null;
+                        state.partnerName = null;
+                        state.partnerAddress = null;
                         MapModule.update(state.lastKnownLocation, {});
+                        updatePartnerInfo();
                         return;
                     }
 
@@ -686,6 +978,7 @@
                     try {
                         await updateDoc(docRef, {
                             user2_id: null,
+                            user2_name: null,
                             user2_location: { lat: 0, lng: 0, timestamp: 0 }
                         });
                     } catch (e) { console.error('Leave error:', e); }
@@ -706,12 +999,17 @@
                 state.sessionCode = null;
                 state.userRole = null;
                 state.partnerLocation = null;
+                state.partnerName = null;
+                state.partnerCity = null;
+                state.partnerAddress = null;
 
                 DOM.connectionPanel.classList.remove('hidden');
                 DOM.infoPanel.classList.add('hidden');
+                DOM.partnerInfoSection.classList.add('hidden');
                 DOM.distanceDisplay.textContent = '--';
                 setStatus('Waiting for other user to connect…', false);
                 MapModule.resetView();
+                updatePartnerInfo();
             },
 
             /** Restore saved session */
@@ -763,7 +1061,7 @@
         DOM.modal.addEventListener('click', (e) => {
             if (e.target === DOM.modal) hideModal();
         });
-        
+
         // Retry location button
         const retryBtn = document.getElementById('retry-location-btn');
         if (retryBtn) {
